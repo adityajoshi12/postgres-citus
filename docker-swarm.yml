@@ -1,0 +1,89 @@
+version: "3"
+networks:
+  test:
+    external:
+      name: test
+
+volumes:
+  master:
+  worker:
+  healthcheck-volume:
+
+services:
+  master:
+    deploy:
+      placement:
+        constraints:
+          - node.labels.name == manager
+    image: "citusdata/citus:10.0.3"
+    ports: ["55432:5432"]
+    environment: &AUTH
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      PGUSER: "${POSTGRES_USER:-postgres}"
+      PGPASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_HOST_AUTH_METHOD: "${POSTGRES_HOST_AUTH_METHOD:-trust}"
+    labels:
+      ["com.citusdata.role=Master", "com.docker.compose.project=postis-citus"]
+    networks:
+      test:
+        aliases:
+          - master.1
+    volumes:
+      - master:/var/lib/postgresql/data
+
+  manager:
+    image: "citusdata/membership-manager:0.3.0"
+    volumes:
+      [
+        "/var/run/docker.sock:/var/run/docker.sock",
+        "healthcheck-volume:/healthcheck",
+      ]
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      PGUSER: "${POSTGRES_USER:-postgres}"
+      PGPASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_HOST_AUTH_METHOD: "${POSTGRES_HOST_AUTH_METHOD:-trust}"
+      CITUS_HOST: "master.1"
+    labels: ["com.docker.compose.project=postgis-citus"]
+    networks:
+      - test
+    deploy:
+      mode: global
+
+  worker1:
+    deploy:
+      placement:
+        constraints:
+          - node.labels.name == worker1
+    image: "citusdata/citus:10.0.3"
+    environment: *AUTH
+    command: "/wait-for-manager.sh"
+    labels:
+      ["com.citusdata.role=Worker", "com.docker.compose.project=postgis-citus"]
+    networks:
+      test:
+        aliases:
+          - worker1
+    volumes:
+      - worker:/var/lib/postgresql/data
+      - healthcheck-volume:/healthcheck
+
+  worker2:
+    deploy:
+      placement:
+        constraints:
+          - node.labels.name == worker2
+    image: "citusdata/citus:10.0.3"
+    environment: *AUTH
+    command: "/wait-for-manager.sh"
+    labels:
+      ["com.citusdata.role=Worker", "com.docker.compose.project=postgis-citus"]
+    networks:
+      test:
+        aliases:
+          - worker2
+    volumes:
+      - worker:/var/lib/postgresql/data
+      - healthcheck-volume:/healthcheck
